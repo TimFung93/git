@@ -23,6 +23,7 @@
 
 #include "cache.h"
 #include "quote.h"
+#include "run-command.h"
 
 struct trace_key trace_default_key = { "GIT_TRACE", 0, 0, 0 };
 struct trace_key trace_perf_key = TRACE_KEY_INIT(PERFORMANCE);
@@ -271,6 +272,44 @@ void trace_performance_fl(const char *file, int line, uint64_t nanos,
 
 #endif /* HAVE_VARIADIC_MACROS */
 
+
+static void concatenate_env(struct strbuf *dst, const char *const *env)
+{
+	int i;
+
+	/* Copy into destination buffer. */
+	strbuf_grow(dst, 255);
+	for (i = 0; env[i]; ++i) {
+		/*
+		 * the main interesting part is setting new vars
+		 * e.g. GIT_DIR, ignore the unsetting to reduce noise.
+		 */
+		if (!strchr(env[i], '='))
+			continue;
+		strbuf_addch(dst, ' ');
+		sq_quote_buf(dst, env[i]);
+	}
+}
+
+void trace_run_command(const struct child_process *cp)
+{
+	struct strbuf buf = STRBUF_INIT;
+
+	if (!prepare_trace_line(NULL, 0, &trace_default_key, &buf))
+		return;
+
+	strbuf_addf(&buf, "trace: run_command:");
+
+	/*
+	 * caller is responsible for setting this if the main source
+	 * is actually in cp->env_array
+	 */
+	if (cp->env)
+		concatenate_env(&buf, cp->env);
+
+	sq_quote_argv(&buf, cp->argv, 0);
+	print_trace_line(&trace_default_key, &buf);
+}
 
 static const char *quote_crnl(const char *path)
 {
